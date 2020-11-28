@@ -9,7 +9,12 @@ local GuidCache = {} -- [guid] = {ilevel, specName, timestamp}
 local ActiveGUID  -- unit passed to NotifyInspect before INSPECT_READY fires
 local ScannedGUID  -- actually-inspected unit from INSPECT_READY
 local INSPECT_TIMEOUT = 1.5 -- safety cap on how often the api will allow us to call NotifyInspect without issues
--- lowering will result in the function silently failing without firing the inspection event
+-- lowering INSPECT_TIMEOUT will result in the function silently failing without firing the inspection event
+
+-- LOADING_ILVL = "Retrieving Data"
+local LOADING_ILVL = RETRIEVING_DATA --format("%s %s", (LFG_LIST_LOADING or "Loading"):gsub("%.", ""), ITEM_LEVEL_ABBR or "iLvl")
+-- ILVL_PENDING = "Inspect Pending"
+local ILVL_PENDING = format("%s %s", INSPECT, strlower(CLUB_FINDER_PENDING or "Pending"))
 
 local function GetUnitIDFromGUID(guid)
 	local _, _, _, _, _, name = GetPlayerInfoByGUID(guid)
@@ -141,20 +146,20 @@ local function AddLine(sekret, leftText, rightText, r1, g1, b1, r2, g2, b2, dont
 		local text = leftStr and leftStr:IsShown() and leftStr:GetText()
 		if text and text:find(sekret) then
 			-- edit line
-			--local rightStr = _G['GameTooltipTextRight' .. i]
+			local rightStr = _G['GameTooltipTextRight' .. i]
 			leftStr:SetText(leftText)
-			--rightStr:SetText(rightText)
+			rightStr:SetText(rightText)
 			if r1 and g1 and b1 then
 				leftStr:SetTextColor(r1, g1, b1)
 			end
-			--if r2 and g2 and b2 then
-			--rightStr:SetTextColor(r2, g2, b2)
-			--end
+			if r2 and g2 and b2 then
+				rightStr:SetTextColor(r2, g2, b2)
+			end
 			return
 		end
 	end
 	if not dontShow or GameTooltip:IsShown() then
-		GameTooltip:AddLine(leftText, r1, g1, b1)
+		GameTooltip:AddDoubleLine(leftText, rightText, r1, g1, b1, r2, g2, b2)
 		GameTooltip:Show()
 	end
 	--end
@@ -323,16 +328,16 @@ f:SetScript(
 			end
 		elseif ShouldInspect and (timeSince < INSPECT_TIMEOUT) then -- we are waiting for another inspection to time out before starting a new one
 			if unitID and UnitIsPlayer(unitID) and CanInspect(unitID) and not GuidCache[guid] then
-			-- AddLine(Sekret, 'Pending', format('%.1fs', INSPECT_TIMEOUT - (GetTime() - LastInspect)), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
+				AddLine(Sekret, ILVL_PENDING, format('%.1fs', INSPECT_TIMEOUT - (GetTime() - LastInspect)), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
 			end
 		else
 			-- todo: handle the tooltip being visible with no attempt at inspecting the unit
 			if ActiveGUID then
 				if guid == ActiveGUID then
 					if timeSince <= FailTimeout then
-						-- AddLine(Sekret, 'Scanning', format('%d%%', timeSince / FailTimeout * 100), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
+						AddLine(Sekret, LOADING_ILVL, format('%d%%', timeSince / FailTimeout * 100), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
 					else
-						-- AddLine(Sekret, 'Scanning', 'Failed', 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
+						AddLine(Sekret, LOADING_ILVL, FAILED or 'Failed', 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
 						ActiveGUID = nil
 					end
 				else
@@ -379,12 +384,12 @@ local function DecorateTooltip(guid)
 		--AddLine(STAT_AVERAGE_ITEM_LEVEL, cache.ilevel, 1, 1, 0, 1, 1, 1, true)
 		local ourMaxItemLevel, ourEquippedItemLevel = GetAverageItemLevel()
 
-		local averageItemLevel = cache.ilevel or 0
+		local averageItemLevel = (cache.ilevel or 0) > 0 and cache.ilevel or cache.itemLevel or 0
 		--local weaponLevel = cache.weaponLevel or 0
-		local neckLevel = cache.neckLevel or 0
+		--local neckLevel = cache.neckLevel or 0
 		local r1, g1, b1 = ColorDiff(ourEquippedItemLevel, averageItemLevel)
-		local ourNeck = GetInventoryItemLink("player", 2)
-		local ourNeckLevel = GetDetailedItemLevelInfo(ourNeck or "") or 0
+		--local ourNeck = GetInventoryItemLink("player", 2)
+		--local ourNeckLevel = GetDetailedItemLevelInfo(ourNeck or "") or 0
 		--[[
 		local ourWeaponMain = GetInventoryItemLink('player', 16)
 		local ourWeaponOff = GetInventoryItemLink('player', 17)
@@ -403,18 +408,19 @@ local function DecorateTooltip(guid)
 			ourWeaponLevel = GetDetailedItemLevelInfo(ourWeaponOff)
 		end
 		--]]
-		local r2, g2, b2 = ColorDiff(ourNeckLevel, neckLevel)
+		--local r2, g2, b2 = ColorDiff(ourNeckLevel, neckLevel)
 
 		--local levelText = format('%s |cff%2x%2x%2x%.1f|r |cff%2x%2x%2x(%s)|r', cache.specName or '', r1 * 255, g1 * 255, b1 * 255, averageItemLevel, r2 * 255, g2 * 255, b2 * 255, cache.itemLevel)
-		local levelText =
-			format("%s ilvl |cff%2x%2x%2x%.1f|r", cache.specName or "", r1 * 255, g1 * 255, b1 * 255, averageItemLevel)
+		--local levelText =
+		--	format("%s |cff%2x%2x%2x%.1f|r", cache.specName or "", r1 * 255, g1 * 255, b1 * 255, averageItemLevel)
 		--local levelText = format('|cff%2x%2x%2x%.1f|r', r1 * 255, g1 * 255, b1 * 255, averageItemLevel, r2 * 255, g2 * 255, b2 * 255)
 
-		AddLine(Sekret, levelText, "", 1, 1, 0, r1, g1, b1)
+		--AddLine(Sekret, "Item Level", levelText, 1, 1, 0, r1, g1, b1)
+		AddLine(Sekret, cache.specName or " ", format("%s %.1f", ITEM_LEVEL_ABBR or "iLvl", averageItemLevel), r1, g1, b1, r1, g1, b1)
 
-		for i, lego in ipairs(cache.legos) do
-			AddLine("|Hlego" .. i .. "|h", lego, " ", 1, 1, 1, 1, 1, 1)
-		end
+		-- for i, lego in ipairs(cache.legos) do
+		-- 	AddLine("|Hlego" .. i .. "|h", lego, " ", 1, 1, 1, 1, 1, 1)
+		-- end
 	else
 		print("tooltip GUID does not match expected guid")
 	end
@@ -467,7 +473,7 @@ function E:INSPECT_READY(guid)
 		if not specName and specID and specID ~= 0 then
 			specID, specName = GetSpecializationInfoByID(specID, UnitSex(unitID))
 			if colors then
-				specName = "|c" .. colors.colorStr .. specName .. "|r"
+				specName = "|c" .. colors.colorStr .. specName .. " " .. classDisplayName .. "|r"
 			end
 		end
 
