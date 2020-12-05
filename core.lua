@@ -3,8 +3,7 @@ local E = addon:Eve()
 
 local CACHE_TIMEOUT = 5 -- seconds to keep stale information before issuing a new inspect
 
-local print = function()
-end -- lazy debug print
+local print = function() end -- lazy debug print
 local GuidCache = {} -- [guid] = {ilevel, specName, timestamp}
 local ActiveGUID  -- unit passed to NotifyInspect before INSPECT_READY fires
 local ScannedGUID  -- actually-inspected unit from INSPECT_READY
@@ -15,6 +14,101 @@ local INSPECT_TIMEOUT = 1.5 -- safety cap on how often the api will allow us to 
 local LOADING_ILVL = RETRIEVING_DATA --format("%s %s", (LFG_LIST_LOADING or "Loading"):gsub("%.", ""), ITEM_LEVEL_ABBR or "iLvl")
 -- ILVL_PENDING = "Inspect Pending"
 local ILVL_PENDING = format("%s %s", INSPECT, strlower(CLUB_FINDER_PENDING or "Pending"))
+
+-- If we see someone cast a covenant spell add their covenant to tooltip
+local CovenantCache = {} -- [guid] = covenantID
+local CovenantColors = {
+	-- Kyrian White
+	[1] = "e6e0e7",
+	-- Venthyr Red
+	[2] = "f71010",
+	-- Night Fae Blue
+	[3] = "41fafe",
+	-- Necrolord Green
+	[4] = "18efa5",
+}
+
+local CovenantIcons = {
+	-- Kyrian
+	[1] = 3586266,
+	-- Venthyr
+	[2] = 3586270,
+	-- Night Fae
+	[3] = 3586268,
+	-- Necrolord
+	[4] = 3586267,
+}
+local CovenantSpells = {
+	-- Kyrian
+	[324739] = 1,
+	[312202] = 1,
+	[306830] = 1,
+	[326434] = 1,
+	[308491] = 1,
+	[307443] = 1,
+	[310454] = 1,
+	[304971] = 1,
+	[325013] = 1,
+	[323547] = 1,
+	[324386] = 1,
+	[312321] = 1,
+	[307865] = 1,
+	[328266] = 1,
+	[333950] = 1,
+	[329791] = 1,
+	-- Venthyr
+	[300728] = 2,
+	[311648] = 2,
+	[317009] = 2,
+	[323546] = 2,
+	[326860] = 2,
+	[314793] = 2,
+	[316958] = 2,
+	[323673] = 2,
+	[323654] = 2,
+	[320674] = 2,
+	[321792] = 2,
+	[317320] = 2,
+	[324149] = 2,
+	[340159] = 2,
+	[331586] = 2,
+	[336239] = 2,
+	-- Night Fae
+	[310143] = 3,
+	[324128] = 3,
+	[323639] = 3,
+	[323764] = 3,
+	[328231] = 3,
+	[314791] = 3,
+	[327104] = 3,
+	[328620] = 3,
+	[327661] = 3,
+	[328305] = 3,
+	[328923] = 3,
+	[325640] = 3,
+	[325886] = 3,
+	[319217] = 3,
+	[325066] = 3,
+	[322721] = 3,
+	[324701] = 3,
+	-- Necrolord
+	[324631] = 4,
+	[315443] = 4,
+	[329554] = 4,
+	[325727] = 4,
+	[325028] = 4,
+	[324220] = 4,
+	[325216] = 4,
+	[328204] = 4,
+	[324724] = 4,
+	[328547] = 4,
+	[326059] = 4,
+	[325289] = 4,
+	[324143] = 4,
+	[323074] = 4,
+	[342156] = 4,
+	[326514] = 4,
+}
 
 local function GetUnitIDFromGUID(guid)
 	local _, _, _, _, _, name = GetPlayerInfoByGUID(guid)
@@ -416,7 +510,15 @@ local function DecorateTooltip(guid)
 		--local levelText = format('|cff%2x%2x%2x%.1f|r', r1 * 255, g1 * 255, b1 * 255, averageItemLevel, r2 * 255, g2 * 255, b2 * 255)
 
 		--AddLine(Sekret, "Item Level", levelText, 1, 1, 0, r1, g1, b1)
-		AddLine(Sekret, cache.specName or " ", format("%s %.1f", ITEM_LEVEL_ABBR or "iLvl", averageItemLevel), r1, g1, b1, r1, g1, b1)
+		AddLine(Sekret, cache.specName and format("%s %s", CreateAtlasMarkup(format("classicon-%s", cache.class)), cache.specName) or " ", format("%s %.1f", ITEM_LEVEL_ABBR or "iLvl", averageItemLevel), r1, g1, b1, r1, g1, b1)
+
+		if CovenantCache[guid] then
+			local covenantID = CovenantCache[guid]
+			local covenantData = C_Covenants.GetCovenantData(covenantID)
+			local covenantColor = CovenantColors[covenantID]
+			local covenantIcon = CovenantIcons[covenantID]
+			AddLine("|Hcovenant|h", format("%s |cff%s%s|r", CreateTextureMarkup(covenantIcon, 64, 64, 16, 16, 0.05, 0.95, 0.05, 0.95), covenantColor, covenantData.name), " ")
+		end
 
 		-- for i, lego in ipairs(cache.legos) do
 		-- 	AddLine("|Hlego" .. i .. "|h", lego, " ", 1, 1, 1, 1, 1, 1)
@@ -473,7 +575,7 @@ function E:INSPECT_READY(guid)
 		if not specName and specID and specID ~= 0 then
 			specID, specName = GetSpecializationInfoByID(specID, UnitSex(unitID))
 			if colors then
-				specName = "|c" .. colors.colorStr .. specName .. " " .. classDisplayName .. "|r"
+				specName = "|c" .. colors.colorStr .. specName .. "|r"
 			end
 		end
 
@@ -483,6 +585,7 @@ function E:INSPECT_READY(guid)
 		local cache = GuidCache[guid]
 		cache.specID = specID
 		cache.class = class
+		cache.classDisplayName = classDisplayName
 		cache.specName = specName
 		cache.itemLevel = C_PaperDollInfo.GetInspectItemLevel(unitID)
 
@@ -518,3 +621,15 @@ GameTooltip:HookScript(
 		end
 	end
 )
+
+-- Covenant spell tracking
+local function COMBAT_LOG_EVENT_UNFILTERED(timestamp, subevent, _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags, spellID, spellName, ...)
+	local covenantID = CovenantSpells[spellID]
+	if covenantID then
+		CovenantCache[sourceGUID] = covenantID
+	end
+end
+
+function E:COMBAT_LOG_EVENT_UNFILTERED()
+	COMBAT_LOG_EVENT_UNFILTERED(CombatLogGetCurrentEventInfo())
+end
