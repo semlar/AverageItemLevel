@@ -1,7 +1,7 @@
-## Interface: 90002
+## Interface: 90100
 ## Title: AverageItemLevel
 ## Notes: Displays the average item level of a player in their tooltip
 ## Author: Semlar
-## Version: 9.0.2.2
+## Version: 9.1.0.0
 semlib\semlib.xml
 core.lua
