@@ -493,16 +493,8 @@ local function DecorateTooltip(guid)
 			ourWeaponLevel = GetDetailedItemLevelInfo(ourWeaponOff)
 		end
 		--]]
-        -- local r2, g2, b2 = ColorDiff(ourNeckLevel, neckLevel)
 
-        -- local levelText = format('%s |cff%2x%2x%2x%.1f|r |cff%2x%2x%2x(%s)|r', cache.specName or '', r1 * 255, g1 * 255, b1 * 255, averageItemLevel, r2 * 255, g2 * 255, b2 * 255, cache.itemLevel)
-        -- local levelText =
-        --	format("%s |cff%2x%2x%2x%.1f|r", cache.specName or "", r1 * 255, g1 * 255, b1 * 255, averageItemLevel)
-        -- local levelText = format('|cff%2x%2x%2x%.1f|r', r1 * 255, g1 * 255, b1 * 255, averageItemLevel, r2 * 255, g2 * 255, b2 * 255)
-
-        -- AddLine(Sekret, "Item Level", levelText, 1, 1, 0, r1, g1, b1)
-        AddLine(Sekret, cache.specName and
-            format("%s %s", CreateAtlasMarkup(format("classicon-%s", cache.class)), cache.specName) or " ",
+        AddLine(Sekret, cache.specName and cache.specName or " ",
             format("%s %.1f", ITEM_LEVEL_ABBR or "iLvl", averageItemLevel), r1, g1, b1, r1, g1, b1)
 
         if CovenantCache[guid] then
@@ -589,11 +581,27 @@ function E:INSPECT_READY(guid)
         local classDisplayName, class = UnitClass(unitID)
         local colors = class and RAID_CLASS_COLORS[class]
         local specID = GetInspectSpecialization(unitID)
-        local specName -- = GuidCache[guid].specName
+        local specName, role, _ -- = GuidCache[guid].specName
         if not specName and specID and specID ~= 0 then
-            specID, specName = GetSpecializationInfoByID(specID, UnitSex(unitID))
+            specID, specName, _, _, role = GetSpecializationInfoByID(specID, UnitSex(unitID))
+            -- Apply class color to spec name
             if colors then
                 specName = "|c" .. colors.colorStr .. specName .. "|r"
+            end
+
+            -- Add role texture for player spec
+            if role then
+                local roleTexture
+                if role == "TANK" then
+                    roleTexture = CreateAtlasMarkup("roleicon-tiny-tank")
+                elseif role == "DAMAGER" then
+                    roleTexture = CreateAtlasMarkup("roleicon-tiny-dps")
+                elseif role == "HEALER" then
+                    roleTexture = CreateAtlasMarkup("roleicon-tiny-healer")
+                end
+                if roleTexture then
+                    specName = format("%s %s", roleTexture, specName)
+                end
             end
         end
 
