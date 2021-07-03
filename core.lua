@@ -584,6 +584,12 @@ function E:INSPECT_READY(guid)
         local specName, role, _ -- = GuidCache[guid].specName
         if not specName and specID and specID ~= 0 then
             specID, specName, _, _, role = GetSpecializationInfoByID(specID, UnitSex(unitID))
+
+            -- Default to class name if unit has no spec
+            if not specName or specName == "" then
+                specName = classDisplayName
+            end
+
             -- Apply class color to spec name
             if colors then
                 specName = "|c" .. colors.colorStr .. specName .. "|r"
