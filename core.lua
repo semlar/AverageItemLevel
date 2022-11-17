@@ -268,7 +268,8 @@ end
 local SlotCache = {} -- [slot] = itemLevel or false
 local ItemCache = {} -- [slot] = itemLink
 local TestTips = {}
-for i, slot in pairs(InventorySlots) do
+-- for i, slot in pairs(InventorySlots) do  this throws exception and i don`t know how and when it shows
+for i, slot in pairs({}) do
     local tip = CreateFrame("GameTooltip", "AverageItemLevelTooltip" .. slot, nil, "GameTooltipTemplate")
     tip:SetOwner(WorldFrame, "ANCHOR_NONE")
     TestTips[slot] = tip
@@ -509,7 +510,7 @@ local function DecorateTooltip(guid)
 
         -- Show Mythic+ score
         local mythicScore = cache.mythicPlus and cache.mythicPlus.currentSeasonScore and
-                                cache.mythicPlus.currentSeasonScore or 0
+            cache.mythicPlus.currentSeasonScore or 0
         if mythicScore > 0 then
             local mythicLabel = mythicScore
             local bestRun = 0
@@ -640,7 +641,8 @@ function E:ItemScanComplete(guid, cache)
     DecorateTooltip(guid)
 end
 
-GameTooltip:HookScript("OnTooltipSetUnit", function(self) -- this fires before the tooltip is visible
+TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self)
+-- GameTooltip:HookScript("OnTooltipSetUnit", function(self) -- this fires before the tooltip is visible
     print("OnTooltipSetUnit")
     local _, unitID = self:GetUnit()
     local guid = unitID and UnitGUID(unitID)
@@ -660,7 +662,7 @@ end)
 
 -- Covenant spell tracking
 local function COMBAT_LOG_EVENT_UNFILTERED(timestamp, subevent, _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-    destGUID, destName, destFlags, destRaidFlags, spellID, spellName, ...)
+                                           destGUID, destName, destFlags, destRaidFlags, spellID, spellName, ...)
     local covenantID = CovenantSpells[spellID]
     if covenantID then
         CovenantCache[sourceGUID] = covenantID
