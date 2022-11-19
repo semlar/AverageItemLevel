@@ -268,122 +268,126 @@ end
 local SlotCache = {} -- [slot] = itemLevel or false
 local ItemCache = {} -- [slot] = itemLink
 local TestTips = {}
--- for i, slot in pairs(InventorySlots) do  this throws exception and i don`t know how and when it shows
-for i, slot in pairs({}) do
+for i, slot in pairs(InventorySlots) do
     local tip = CreateFrame("GameTooltip", "AverageItemLevelTooltip" .. slot, nil, "GameTooltipTemplate")
     tip:SetOwner(WorldFrame, "ANCHOR_NONE")
     TestTips[slot] = tip
     tip.slot = slot
-    tip:SetScript("OnTooltipSetItem", function(self)
-        local slot = self.slot
-        local _, itemLink = self:GetItem()
-        local tipName = self:GetName()
-        if self.itemLink then
-            itemLink = self.itemLink
-        end
-        if itemLink then
-            local isCached = IsCached(itemLink)
-            if isCached then
-                for i = 2, self:NumLines() do
-                    local str = _G[tipName .. "TextLeft" .. i]
-                    local text = str and str:GetText()
-                    if text then
-                        local ilevel = text:match(ItemLevelPattern1)
-                        if not ilevel then
-                            ilevel = text:match(ItemLevelPattern2)
-                        end
-                        if ilevel then
-                            SlotCache[slot] = tonumber(ilevel)
-                            ItemCache[slot] = itemLink
-                        end
-                    end
-                end
-            end
-        end
-
-        local finished = true
-        local totalItemLevel = 0
-        for slot, ilevel in pairs(SlotCache) do
-            if not ilevel then
-                finished = false
-                break
-            else
-                if slot ~= 16 and slot ~= 17 then
-                    totalItemLevel = totalItemLevel + ilevel
-                end
-            end
-        end
-
-        if finished then
-            local weaponLevel = 0
-            local isDual = false
-            if SlotCache[16] and SlotCache[17] then -- we have 2 weapons
-                isDual = true
-                if IsArtifact(ItemCache[16]) or IsArtifact(ItemCache[17]) then -- take the higher of the 2 weapons and double it
-                    local ilevelMain = SlotCache[16]
-                    local ilevelOff = SlotCache[17]
-                    weaponLevel = ilevelMain > ilevelOff and ilevelMain or ilevelOff
-                    totalItemLevel = totalItemLevel + (weaponLevel * 2)
-                else
-                    local ilevelMain = SlotCache[16]
-                    local ilevelOff = SlotCache[17]
-                    totalItemLevel = totalItemLevel + ilevelMain + ilevelOff
-                    if ilevelMain > ilevelOff then
-                        weaponLevel = ilevelMain
-                    else
-                        weaponLevel = ilevelOff
-                    end
-                end
-            elseif SlotCache[16] then -- main hand only
-                local _, _, _, weaponType = GetItemInfoInstant(ItemCache[16])
-                local ilevelMain = SlotCache[16]
-                weaponLevel = ilevelMain
-                if TwoHanders[weaponType] then -- 2 handed, count it twice
-                    totalItemLevel = totalItemLevel + (ilevelMain * 2)
-                else
-                    totalItemLevel = totalItemLevel + ilevelMain
-                end
-            elseif SlotCache[17] then -- off hand only?
-                local ilevelOff = SlotCache[17]
-                totalItemLevel = totalItemLevel + ilevelOff
-                weaponLevel = ilevelOff
-            end
-
-            if weaponLevel >= 900 and ScannedGUID ~= UnitGUID("player") then
-                weaponLevel = weaponLevel + 15
-                if isDual then
-                    totalItemLevel = totalItemLevel + 15
-                else
-                    totalItemLevel = totalItemLevel + 30
-                end
-            end
-
-            local averageItemLevel = totalItemLevel / 16
-
-            -- should we just return the cache for this GUID?
-            local guid = ScannedGUID
-            if not GuidCache[guid] then
-                GuidCache[guid] = {}
-            end
-            -- GuidCache[guid].specName = specName
-            GuidCache[guid].ilevel = averageItemLevel
-            GuidCache[guid].weaponLevel = weaponLevel
-            GuidCache[guid].neckLevel = SlotCache[2]
-            -- GuidCache[guid].levelText = levelText
-            GuidCache[guid].timestamp = GetTime()
-
-            -- todo: figure out why this can fire multiple times
-            wipe(GuidCache[guid].legos)
-            for slot, link in pairs(ItemCache) do
-                if IsLegendary(link) then
-                    tinsert(GuidCache[guid].legos, link)
-                end
-            end
-
-            E("ItemScanComplete", guid, GuidCache[guid])
-        end
-    end)
 end
+
+
+function OnTooltipSetItem(self)
+    local slot = self.slot
+    local _, itemLink = self:GetItem()
+    local tipName = self:GetName()
+    if self.itemLink then
+        itemLink = self.itemLink
+    end
+    if itemLink then
+        local isCached = IsCached(itemLink)
+        if isCached then
+            for i = 2, self:NumLines() do
+                local str = _G[tipName .. "TextLeft" .. i]
+                local text = str and str:GetText()
+                if text then
+                    local ilevel = text:match(ItemLevelPattern1)
+                    if not ilevel then
+                        ilevel = text:match(ItemLevelPattern2)
+                    end
+                    if ilevel then
+                        SlotCache[slot] = tonumber(ilevel)
+                        ItemCache[slot] = itemLink
+                    end
+                end
+            end
+        end
+    end
+
+    local finished = true
+    local totalItemLevel = 0
+    for slot, ilevel in pairs(SlotCache) do
+        if not ilevel then
+            finished = false
+            break
+        else
+            if slot ~= 16 and slot ~= 17 then
+                totalItemLevel = totalItemLevel + ilevel
+            end
+        end
+    end
+
+    if finished then
+        local weaponLevel = 0
+        local isDual = false
+        if SlotCache[16] and SlotCache[17] then -- we have 2 weapons
+            isDual = true
+            if IsArtifact(ItemCache[16]) or IsArtifact(ItemCache[17]) then -- take the higher of the 2 weapons and double it
+                local ilevelMain = SlotCache[16]
+                local ilevelOff = SlotCache[17]
+                weaponLevel = ilevelMain > ilevelOff and ilevelMain or ilevelOff
+                totalItemLevel = totalItemLevel + (weaponLevel * 2)
+            else
+                local ilevelMain = SlotCache[16]
+                local ilevelOff = SlotCache[17]
+                totalItemLevel = totalItemLevel + ilevelMain + ilevelOff
+                if ilevelMain > ilevelOff then
+                    weaponLevel = ilevelMain
+                else
+                    weaponLevel = ilevelOff
+                end
+            end
+        elseif SlotCache[16] then -- main hand only
+            local _, _, _, weaponType = GetItemInfoInstant(ItemCache[16])
+            local ilevelMain = SlotCache[16]
+            weaponLevel = ilevelMain
+            if TwoHanders[weaponType] then -- 2 handed, count it twice
+                totalItemLevel = totalItemLevel + (ilevelMain * 2)
+            else
+                totalItemLevel = totalItemLevel + ilevelMain
+            end
+        elseif SlotCache[17] then -- off hand only?
+            local ilevelOff = SlotCache[17]
+            totalItemLevel = totalItemLevel + ilevelOff
+            weaponLevel = ilevelOff
+        end
+
+        if weaponLevel >= 900 and ScannedGUID ~= UnitGUID("player") then
+            weaponLevel = weaponLevel + 15
+            if isDual then
+                totalItemLevel = totalItemLevel + 15
+            else
+                totalItemLevel = totalItemLevel + 30
+            end
+        end
+
+        local averageItemLevel = totalItemLevel / 16
+
+        -- should we just return the cache for this GUID?
+        local guid = ScannedGUID
+        if not GuidCache[guid] then
+            GuidCache[guid] = {}
+        end
+        -- GuidCache[guid].specName = specName
+        GuidCache[guid].ilevel = averageItemLevel
+        GuidCache[guid].weaponLevel = weaponLevel
+        GuidCache[guid].neckLevel = SlotCache[2]
+        -- GuidCache[guid].levelText = levelText
+        GuidCache[guid].timestamp = GetTime()
+
+        -- todo: figure out why this can fire multiple times
+        wipe(GuidCache[guid].legos)
+        for slot, link in pairs(ItemCache) do
+            if IsLegendary(link) then
+                tinsert(GuidCache[guid].legos, link)
+            end
+        end
+
+        E("ItemScanComplete", guid, GuidCache[guid])
+    end
+end
+
+TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnTooltipSetItem);
+
 
 local function GetTooltipGUID()
     -- if GameTooltip:IsVisible() then
