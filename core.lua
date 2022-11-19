@@ -278,6 +278,9 @@ end
 
 function OnTooltipSetItem(self)
     local slot = self.slot
+    if(not slot) then 
+        return
+    end
     local _, itemLink = self:GetItem()
     local tipName = self:GetName()
     if self.itemLink then
