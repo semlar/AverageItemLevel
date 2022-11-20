@@ -204,13 +204,13 @@ end
 
 local function IsLegendary(itemLink)
     -- return false
-    return itemLink:find('|cffff8000')
+    return itemLink:find("|cffff8000")
 end
 
 local function IsCached(itemLink) -- we can't get the correct level of an artifact until all of its relics have been cached
     local cached = true
     local _, itemID, _, relic1, relic2, relic3 = strsplit(":", itemLink)
-    print(strsplit(":", itemLink))
+    -- print(strsplit(":", itemLink))
     if not GetDetailedItemLevelInfo(itemID) then
         cached = false
     end
@@ -225,7 +225,7 @@ local function IsCached(itemLink) -- we can't get the correct level of an artifa
             cached = false
         end
     end
-    print(cached)
+    -- print(cached)
     return cached
 end
 
@@ -241,7 +241,7 @@ local function AddLine(sekret, leftText, rightText, r1, g1, b1, r2, g2, b2, dont
         local text = leftStr and leftStr:IsShown() and leftStr:GetText()
         if text and text:find(sekret) then
             -- edit line
-            local rightStr = _G['GameTooltipTextRight' .. i]
+            local rightStr = _G["GameTooltipTextRight" .. i]
             leftStr:SetText(leftText)
             rightStr:SetText(rightText)
             if r1 and g1 and b1 then
@@ -275,10 +275,9 @@ for i, slot in pairs(InventorySlots) do
     tip.slot = slot
 end
 
-
 function OnTooltipSetItem(self)
     local slot = self.slot
-    if(not slot) then 
+    if (not slot) then
         return
     end
     local _, itemLink = self:GetItem()
@@ -391,7 +390,6 @@ end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnTooltipSetItem);
 
-
 local function GetTooltipGUID()
     -- if GameTooltip:IsVisible() then
     local _, unitID = GameTooltip:GetUnit()
@@ -419,14 +417,14 @@ f:SetScript("OnUpdate", function(self, elapsed)
         if ActiveGUID ~= guid then -- todo: make sure this isn't going to be a problem
             local cache = GuidCache[guid]
             if cache and GetTime() - cache.timestamp <= CACHE_TIMEOUT then -- rescan only if enough time has elapsed
-                print("Still cached")
+                -- print("Still cached")
             elseif CanInspect(unitID) then
                 NotifyInspect(unitID)
             end
         end
     elseif ShouldInspect and (timeSince < INSPECT_TIMEOUT) then -- we are waiting for another inspection to time out before starting a new one
         if unitID and UnitIsPlayer(unitID) and CanInspect(unitID) and not GuidCache[guid] then
-            AddLine(Sekret, ILVL_PENDING, format('%.1fs', INSPECT_TIMEOUT - (GetTime() - LastInspect)), 0.6, 0.6, 0.6,
+            AddLine(Sekret, ILVL_PENDING, format("%.1fs", INSPECT_TIMEOUT - (GetTime() - LastInspect)), 0.6, 0.6, 0.6,
                 0.6, 0.6, 0.6)
         end
     else
@@ -434,10 +432,10 @@ f:SetScript("OnUpdate", function(self, elapsed)
         if ActiveGUID then
             if guid == ActiveGUID then
                 if timeSince <= FailTimeout then
-                    AddLine(Sekret, LOADING_ILVL, format('%d%%', timeSince / FailTimeout * 100), 0.6, 0.6, 0.6, 0.6,
+                    AddLine(Sekret, LOADING_ILVL, format("%d%%", timeSince / FailTimeout * 100), 0.6, 0.6, 0.6, 0.6,
                         0.6, 0.6)
                 else
-                    AddLine(Sekret, LOADING_ILVL, FAILED or 'Failed', 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
+                    AddLine(Sekret, LOADING_ILVL, FAILED or "Failed", 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
                     ActiveGUID = nil
                 end
             else
@@ -452,7 +450,7 @@ f:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 hooksecurefunc("NotifyInspect", function(unitID)
-    print("NotifyInspect!", unitID, UnitGUID(unitID), (select(6, GetPlayerInfoByGUID(UnitGUID(unitID)))))
+    -- print("NotifyInspect!", unitID, UnitGUID(unitID), (select(6, GetPlayerInfoByGUID(UnitGUID(unitID)))))
     if not GuidCache[UnitGUID(unitID)] then
         ActiveGUID = UnitGUID(unitID)
     end
@@ -470,7 +468,7 @@ end
 local function DecorateTooltip(guid)
     local cache = GuidCache[guid]
     if not cache then
-        print("no cache?")
+        -- print("no cache?")
         return
     end
     if GetTooltipGUID() == guid then -- make sure we're looking at the same unit
@@ -517,7 +515,7 @@ local function DecorateTooltip(guid)
 
         -- Show Mythic+ score
         local mythicScore = cache.mythicPlus and cache.mythicPlus.currentSeasonScore and
-            cache.mythicPlus.currentSeasonScore or 0
+                                cache.mythicPlus.currentSeasonScore or 0
         if mythicScore > 0 then
             local mythicLabel = mythicScore
             local bestRun = 0
@@ -542,12 +540,12 @@ local function DecorateTooltip(guid)
         --     AddLine("|Hlego" .. i .. "|h", "|cffff8000Legendary|r", lego, 1, 1, 1, 1, 1, 1)
         -- end
     else
-        print("tooltip GUID does not match expected guid")
+        -- print("tooltip GUID does not match expected guid")
     end
 end
 
 local function ScanUnit(unitID)
-    print("SCANNING UNIT", unitID)
+    -- print("SCANNING UNIT", unitID)
     ScannedGUID = UnitGUID(unitID)
     wipe(SlotCache)
     wipe(ItemCache)
@@ -556,7 +554,7 @@ local function ScanUnit(unitID)
     for i, slot in pairs(InventorySlots) do
         if GetInventoryItemTexture(unitID, slot) then -- we have an item in this slot
             SlotCache[slot] = false
-            print("GetInventoryItemTexture", slot, GetInventoryItemTexture(unitID, slot))
+            -- print("GetInventoryItemTexture", slot, GetInventoryItemTexture(unitID, slot))
             numEquipped = numEquipped + 1
         end
     end
@@ -564,7 +562,7 @@ local function ScanUnit(unitID)
     if numEquipped > 0 then
         for slot in pairs(SlotCache) do
             TestTips[slot].itemLink = GetInventoryItemLink(unitID, slot)
-            -- print('GetInveotryItemLink', TestTips[slot].itemLink, slot)
+            -- -- print('GetInveotryItemLink', TestTips[slot].itemLink, slot)
             TestTips[slot]:SetOwner(WorldFrame, "ANCHOR_NONE")
             TestTips[slot]:SetInventoryItem(unitID, slot)
         end
@@ -581,11 +579,11 @@ local function ScanUnit(unitID)
 end
 
 function E:INSPECT_READY(guid)
-    print("INSPECT_READY")
+    -- print("INSPECT_READY")
     ActiveGUID = nil
     local unitID, name = GetUnitIDFromGUID(guid)
     if unitID then
-        print("INSPECT_READY", unitID, name)
+        -- print("INSPECT_READY", unitID, name)
         local classDisplayName, class = UnitClass(unitID)
         local colors = class and RAID_CLASS_COLORS[class]
         local specID = GetInspectSpecialization(unitID)
@@ -638,23 +636,22 @@ function E:INSPECT_READY(guid)
 
         ScanUnit(unitID)
         -- else
-        --	print(format('No unit ID available to inspect %s', name))
+        --	-- print(format('No unit ID available to inspect %s', name))
     end
 end
 
 function E:ItemScanComplete(guid, cache)
-    print("ItemScanComplete", guid, cache)
+    -- print("ItemScanComplete", guid, cache)
     -- AddLine(STAT_AVERAGE_ITEM_LEVEL, cache.ilevel, 1, 1, 0, 1, 1, 1, true)
     DecorateTooltip(guid)
 end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self)
--- GameTooltip:HookScript("OnTooltipSetUnit", function(self) -- this fires before the tooltip is visible
-    print("OnTooltipSetUnit")
+    -- print("OnTooltipSetUnit")
     local _, unitID = self:GetUnit()
     local guid = unitID and UnitGUID(unitID)
     if guid and UnitIsPlayer(unitID) then
-        print("OnTooltipSetUnit", guid, UnitName(unitID))
+        -- print("OnTooltipSetUnit", guid, UnitName(unitID))
         local cache = GuidCache[guid]
         if cache then
             -- fill tooltip with cached data, but initiate a new scan anyway to update it
@@ -669,7 +666,7 @@ end)
 
 -- Covenant spell tracking
 local function COMBAT_LOG_EVENT_UNFILTERED(timestamp, subevent, _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-                                           destGUID, destName, destFlags, destRaidFlags, spellID, spellName, ...)
+    destGUID, destName, destFlags, destRaidFlags, spellID, spellName, ...)
     local covenantID = CovenantSpells[spellID]
     if covenantID then
         CovenantCache[sourceGUID] = covenantID
