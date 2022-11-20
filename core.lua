@@ -111,46 +111,6 @@ local CovenantSpells = {
     [326514] = 4
 }
 
-local function GetUnitIDFromGUID(guid)
-    local _, _, _, _, _, name = GetPlayerInfoByGUID(guid)
-    if UnitExists(name) then -- unit is in our group and can use its name as a unit ID
-        return name, name
-    elseif UnitGUID("mouseover") == guid then -- unit is under our cursor
-        return "mouseover", name
-    elseif UnitGUID("target") == guid then -- unit is our target
-        return "target", name
-    elseif GetCVar("nameplateShowFriends") == "1" then -- friendly nameplates are visible
-        for i = 1, 30 do
-            local unitID = "nameplate" .. i
-            local nameplateGUID = UnitGUID(unitID)
-            if nameplateGUID then
-                if nameplateGUID == guid then
-                    return unitID, name
-                end
-            else
-                break
-            end
-        end
-    else -- scan every group member's target (this is probably overkill)
-        local numMembers = GetNumGroupMembers()
-        if numMembers > 0 then
-            local unitPrefix = IsInRaid() and "raid" or "party"
-            if unitPrefix == "party" then
-                numMembers = numMembers - 1
-            end
-            for i = 1, numMembers do
-                local unitID = unitPrefix .. i .. "-target"
-                local targetGUID = UnitGUID(unitID)
-                if targetGUID == guid then
-                    return unitID, name
-                end
-            end
-        end
-    end
-    -- no convenient unit ID is available, we tried
-    return nil, name
-end
-
 local function ColorGradient(perc, r1, g1, b1, r2, g2, b2)
     if perc >= 1 then
         local r, g, b = r2, g2, b2 -- select(select('#', ...) - 2, ...)
@@ -581,7 +541,7 @@ end
 function E:INSPECT_READY(guid)
     -- print("INSPECT_READY")
     ActiveGUID = nil
-    local unitID, name = GetUnitIDFromGUID(guid)
+    local unitID = UnitTokenFromGUID(guid)
     if unitID then
         -- print("INSPECT_READY", unitID, name)
         local classDisplayName, class = UnitClass(unitID)
