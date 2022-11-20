@@ -235,7 +235,7 @@ for i, slot in pairs(InventorySlots) do
     tip.slot = slot
 end
 
-function OnTooltipSetItem(self)
+local function OnTooltipSetItem(self)
     local slot = self.slot
     if (not slot) then
         return
