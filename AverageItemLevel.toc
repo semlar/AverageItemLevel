@@ -2,6 +2,6 @@
 ## Title: AverageItemLevel
 ## Notes: Displays the average item level of a player in their tooltip
 ## Author: Semlar
-## Version: 10.0.2.0
+## Version: 10.0.2.1
 semlib\semlib.xml
 core.lua

@@ -236,6 +236,8 @@ for i, slot in pairs(InventorySlots) do
 end
 
 local function OnTooltipSetItem(self)
+    if self ~= GameTooltip then return end
+
     local slot = self.slot
     if (not slot) then
         return
@@ -491,7 +493,7 @@ local function DecorateTooltip(guid)
 
             local color = C_ChallengeMode.GetDungeonScoreRarityColor(mythicScore) or HIGHLIGHT_FONT_COLOR
             AddLine("|HmythicPlus|h", DUNGEON_SCORE, mythicLabel, 1, 1, 0.6, color:GetRGB())
-        else
+        -- else
             -- AddLine("|HmythicPlus|h", DUNGEON_SCORE, "None", 1, 1, 0, 0.6, 0.6, 0.6)
         end
 
@@ -595,8 +597,6 @@ function E:INSPECT_READY(guid)
         cache.mythicPlus = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unitID) or {}
 
         ScanUnit(unitID)
-        -- else
-        --	-- print(format('No unit ID available to inspect %s', name))
     end
 end
 
@@ -607,6 +607,8 @@ function E:ItemScanComplete(guid, cache)
 end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self)
+    if self ~= GameTooltip then return end
+
     -- print("OnTooltipSetUnit")
     local _, unitID = self:GetUnit()
     local guid = unitID and UnitGUID(unitID)
