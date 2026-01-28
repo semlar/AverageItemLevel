@@ -16,101 +16,6 @@ local LOADING_ILVL = RETRIEVING_DATA -- format("%s %s", (LFG_LIST_LOADING or "Lo
 -- ILVL_PENDING = "Inspect Pending"
 local ILVL_PENDING = format("%s %s", INSPECT, strlower(CLUB_FINDER_PENDING or "Pending"))
 
--- If we see someone cast a covenant spell add their covenant to tooltip
-local CovenantCache = {} -- [guid] = covenantID
-local CovenantColors = {
-    -- Kyrian White
-    [1] = "e6e0e7",
-    -- Venthyr Red
-    [2] = "f71010",
-    -- Night Fae Blue
-    [3] = "41fafe",
-    -- Necrolord Green
-    [4] = "18efa5"
-}
-
-local CovenantIcons = {
-    -- Kyrian
-    [1] = 3586266,
-    -- Venthyr
-    [2] = 3586270,
-    -- Night Fae
-    [3] = 3586268,
-    -- Necrolord
-    [4] = 3586267
-}
-local CovenantSpells = {
-    -- Kyrian
-    [324739] = 1,
-    [312202] = 1,
-    [306830] = 1,
-    [326434] = 1,
-    [308491] = 1,
-    [307443] = 1,
-    [310454] = 1,
-    [304971] = 1,
-    [325013] = 1,
-    [323547] = 1,
-    [324386] = 1,
-    [312321] = 1,
-    [307865] = 1,
-    [328266] = 1,
-    [333950] = 1,
-    [329791] = 1,
-    -- Venthyr
-    [300728] = 2,
-    [311648] = 2,
-    [317009] = 2,
-    [323546] = 2,
-    [326860] = 2,
-    [314793] = 2,
-    [316958] = 2,
-    [323673] = 2,
-    [323654] = 2,
-    [320674] = 2,
-    [321792] = 2,
-    [317320] = 2,
-    [324149] = 2,
-    [340159] = 2,
-    [331586] = 2,
-    [336239] = 2,
-    -- Night Fae
-    [310143] = 3,
-    [324128] = 3,
-    [323639] = 3,
-    [323764] = 3,
-    [328231] = 3,
-    [314791] = 3,
-    [327104] = 3,
-    [328620] = 3,
-    [327661] = 3,
-    [328305] = 3,
-    [328923] = 3,
-    [325640] = 3,
-    [325886] = 3,
-    [319217] = 3,
-    [325066] = 3,
-    [322721] = 3,
-    [324701] = 3,
-    -- Necrolord
-    [324631] = 4,
-    [315443] = 4,
-    [329554] = 4,
-    [325727] = 4,
-    [325028] = 4,
-    [324220] = 4,
-    [325216] = 4,
-    [328204] = 4,
-    [324724] = 4,
-    [328547] = 4,
-    [326059] = 4,
-    [325289] = 4,
-    [324143] = 4,
-    [323074] = 4,
-    [342156] = 4,
-    [326514] = 4
-}
-
 local function ColorGradient(perc, r1, g1, b1, r2, g2, b2)
     if perc >= 1 then
         local r, g, b = r2, g2, b2 -- select(select('#', ...) - 2, ...)
@@ -228,20 +133,19 @@ end
 local SlotCache = {} -- [slot] = itemLevel or false
 local ItemCache = {} -- [slot] = itemLink
 local TestTips = {}
+local TestTipSlots = {}
 for i, slot in pairs(InventorySlots) do
     local tip = CreateFrame("GameTooltip", "AverageItemLevelTooltip" .. slot, nil, "GameTooltipTemplate")
     tip:SetOwner(WorldFrame, "ANCHOR_NONE")
     TestTips[slot] = tip
+    TestTipSlots[tip] = slot
     tip.slot = slot
 end
 
 local function OnTooltipSetItem(self)
-    if self ~= GameTooltip then return end
+    if not TestTipSlots[self] then return end
 
     local slot = self.slot
-    if (not slot) then
-        return
-    end
     local _, itemLink = self:GetItem()
     local tipName = self:GetName()
     if self.itemLink then
@@ -465,16 +369,6 @@ local function DecorateTooltip(guid)
         AddLine(Sekret, cache.specName and cache.specName or " ",
             format("%s %.1f", ITEM_LEVEL_ABBR or "iLvl", averageItemLevel), r1, g1, b1, r1, g1, b1)
 
-        if CovenantCache[guid] then
-            local covenantID = CovenantCache[guid]
-            local covenantData = C_Covenants.GetCovenantData(covenantID)
-            local covenantColor = CovenantColors[covenantID]
-            local covenantIcon = CovenantIcons[covenantID]
-            AddLine("|Hcovenant|h",
-                format("%s |cff%s%s|r", CreateTextureMarkup(covenantIcon, 64, 64, 16, 16, 0.05, 0.95, 0.05, 0.95),
-                    covenantColor, covenantData.name), " ")
-        end
-
         -- Show Mythic+ score
         local mythicScore = cache.mythicPlus and cache.mythicPlus.currentSeasonScore and
                                 cache.mythicPlus.currentSeasonScore or 0
@@ -508,7 +402,9 @@ end
 
 local function ScanUnit(unitID)
     -- print("SCANNING UNIT", unitID)
-    ScannedGUID = UnitGUID(unitID)
+    local guid = UnitGUID(unitID)
+    if not guid or issecretvalue(guid) then return end
+    ScannedGUID = guid
     wipe(SlotCache)
     wipe(ItemCache)
     wipe(GuidCache[ScannedGUID].legos)
@@ -544,7 +440,7 @@ function E:INSPECT_READY(guid)
     -- print("INSPECT_READY")
     ActiveGUID = nil
     local unitID = UnitTokenFromGUID(guid)
-    if unitID then
+    if unitID and not issecretvalue(UnitGUID(unitID)) then
         -- print("INSPECT_READY", unitID, name)
         local classDisplayName, class = UnitClass(unitID)
         local colors = class and RAID_CLASS_COLORS[class]
@@ -612,7 +508,7 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self
     -- print("OnTooltipSetUnit")
     local _, unitID = self:GetUnit()
     local guid = unitID and UnitGUID(unitID)
-    if guid and UnitIsPlayer(unitID) then
+    if guid and not issecretvalue(guid) and UnitIsPlayer(unitID) then
         -- print("OnTooltipSetUnit", guid, UnitName(unitID))
         local cache = GuidCache[guid]
         if cache then
@@ -625,16 +521,3 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self
         end
     end
 end)
-
--- Covenant spell tracking
-local function COMBAT_LOG_EVENT_UNFILTERED(timestamp, subevent, _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-    destGUID, destName, destFlags, destRaidFlags, spellID, spellName, ...)
-    local covenantID = CovenantSpells[spellID]
-    if covenantID then
-        CovenantCache[sourceGUID] = covenantID
-    end
-end
-
-function E:COMBAT_LOG_EVENT_UNFILTERED()
-    COMBAT_LOG_EVENT_UNFILTERED(CombatLogGetCurrentEventInfo())
-end
