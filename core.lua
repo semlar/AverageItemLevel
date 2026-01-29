@@ -492,6 +492,8 @@ function E:INSPECT_READY(guid)
         cache.itemLevel = C_PaperDollInfo.GetInspectItemLevel(unitID)
         cache.mythicPlus = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unitID) or {}
 
+        -- FIXME: DecorateTooltip should only be called after ScanUnit completes
+        DecorateTooltip(guid)
         ScanUnit(unitID)
     end
 end
