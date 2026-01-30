@@ -16,6 +16,12 @@ local LOADING_ILVL = RETRIEVING_DATA -- format("%s %s", (LFG_LIST_LOADING or "Lo
 -- ILVL_PENDING = "Inspect Pending"
 local ILVL_PENDING = format("%s %s", INSPECT, strlower(CLUB_FINDER_PENDING or "Pending"))
 
+local _UnitGUID = UnitGUID
+local UnitGUID = function(unitID)
+    if issecretvalue(unitID) then return end
+    return _UnitGUID(unitID)
+end
+
 local function ColorGradient(perc, r1, g1, b1, r2, g2, b2)
     if perc >= 1 then
         local r, g, b = r2, g2, b2 -- select(select('#', ...) - 2, ...)
