@@ -265,6 +265,7 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnTooltipSetI
 local function GetTooltipGUID()
     -- if GameTooltip:IsVisible() then
     local _, unitID = GameTooltip:GetUnit()
+    if not unitID or issecretvalue(unitID) then return end
     local guid = unitID and UnitGUID(unitID)
     if UnitIsPlayer(unitID) and CanInspect(unitID) then
         return guid
@@ -278,6 +279,7 @@ local LastInspect = 0
 local FailTimeout = 1
 f:SetScript("OnUpdate", function(self, elapsed)
     local _, unitID = GameTooltip:GetUnit()
+    if not unitID or issecretvalue(unitID) then return end
     local guid = unitID and UnitGUID(unitID)
     if not guid or (InspectFrame and InspectFrame:IsVisible()) then
         return
@@ -515,6 +517,7 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self
 
     -- print("OnTooltipSetUnit")
     local _, unitID = self:GetUnit()
+    if not unitID or issecretvalue(unitID) then return end
     local guid = unitID and UnitGUID(unitID)
     if guid and not issecretvalue(guid) and UnitIsPlayer(unitID) then
         -- print("OnTooltipSetUnit", guid, UnitName(unitID))
