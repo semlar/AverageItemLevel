@@ -8,13 +8,6 @@ end -- lazy debug print
 local GuidCache = {} -- [guid] = {ilevel, specName, timestamp}
 local ActiveGUID -- unit passed to NotifyInspect before INSPECT_READY fires
 local ScannedGUID -- actually-inspected unit from INSPECT_READY
-local ScanStartedAt = 0
-local ScanWatchdogGUID
-local InspectRetryGUID
-local InspectRetryAttempts = 0
-local RefreshCurrentTooltipDeferred
-local ShouldInspect = false
-local LastInspect = 0
 local INSPECT_TIMEOUT = 1.5 -- safety cap on how often the api will allow us to call NotifyInspect without issues
 -- lowering INSPECT_TIMEOUT will result in the function silently failing without firing the inspection event
 
@@ -22,6 +15,9 @@ local INSPECT_TIMEOUT = 1.5 -- safety cap on how often the api will allow us to 
 local LOADING_ILVL = RETRIEVING_DATA -- format("%s %s", (LFG_LIST_LOADING or "Loading"):gsub("%.", ""), ITEM_LEVEL_ABBR or "iLvl")
 -- ILVL_PENDING = "Inspect Pending"
 local ILVL_PENDING = format("%s %s", INSPECT, strlower(CLUB_FINDER_PENDING or "Pending"))
+
+-- Fallback for older game versions without C_Item
+local GetDetailedItemLevelInfo = GetDetailedItemLevelInfo or C_Item.GetDetailedItemLevelInfo
 
 local _UnitGUID = UnitGUID
 local UnitGUID = function(unitID)
@@ -59,6 +55,8 @@ local function ColorDiff(a, b)
     return r, g, b
 end
 
+local ItemScanQueue = {} -- 
+
 local ItemLevelPattern1 = ITEM_LEVEL:gsub("%%d", "(%%d+)")
 local ItemLevelPattern2 = ITEM_LEVEL_ALT:gsub("([()])", "%%%1"):gsub("%%d", "(%%d+)")
 
@@ -85,6 +83,35 @@ local function IsLegendary(itemLink)
     return itemLink:find("|cffff8000")
 end
 
+local function GetItemLevel(unit, slot)
+    -- local tooltipData = C_TooltipInfo.GetHyperlink(itemLink)
+    local tooltipData = C_TooltipInfo.GetInventoryItem(unit, slot)
+    if tooltipData and tooltipData.lines then
+        for _, lineData in ipairs(tooltipData.lines) do
+            if lineData.type == Enum.TooltipDataLineType.ItemLevel then
+                return lineData.itemLevel
+            end
+        end
+        -- We have data for the item but it doesn't have an item level?
+        -- See: Hallowed Helm
+        return 0
+    end
+    return false
+end
+
+function GetItemLevelByGUID(itemGUID)
+    -- local tooltipData = C_TooltipInfo.GetHyperlink(itemLink)
+    local tooltipData = C_TooltipInfo.GetItemByGUID(itemGUID)
+    if tooltipData and tooltipData.lines then
+        for _, lineData in ipairs(tooltipData.lines) do
+            if lineData.type == Enum.TooltipDataLineType.ItemLevel then
+                return lineData.itemLevel
+            end
+        end
+    end
+    return false
+end
+
 local function IsCached(itemLink) -- we can't get the correct level of an artifact until all of its relics have been cached
     local cached = true
     local _, itemID, _, relic1, relic2, relic3 = strsplit(":", itemLink)
@@ -107,37 +134,7 @@ local function IsCached(itemLink) -- we can't get the correct level of an artifa
     return cached
 end
 
-local SekretStatus = "|HailStatus|h"
-local SekretILVL = "|Hail|h"
-
-local function GetSafeTooltipText(fontString)
-    if not fontString or not fontString:IsShown() then return end
-
-    local text = fontString:GetText()
-    if not text or issecretvalue(text) then
-        return
-    end
-
-    return text
-end
-
-local function RemoveLine(sekret)
-    for i = 2, GameTooltip:NumLines() do
-        local leftStr = _G["GameTooltipTextLeft" .. i]
-        local text = GetSafeTooltipText(leftStr)
-        if text and text:find(sekret) then
-            local rightStr = _G["GameTooltipTextRight" .. i]
-            leftStr:SetText(nil)
-            leftStr:Hide()
-            if rightStr then
-                rightStr:SetText(nil)
-                rightStr:Hide()
-            end
-            return
-        end
-    end
-end
-
+local Sekret = "|Hilvl|h"
 local function AddLine(sekret, leftText, rightText, r1, g1, b1, r2, g2, b2, dontShow)
     -- if GameTooltip:IsVisible() then
     if not r1 then
@@ -146,7 +143,7 @@ local function AddLine(sekret, leftText, rightText, r1, g1, b1, r2, g2, b2, dont
     leftText = sekret .. leftText
     for i = 2, GameTooltip:NumLines() do
         local leftStr = _G["GameTooltipTextLeft" .. i]
-        local text = GetSafeTooltipText(leftStr)
+        local text = leftStr and leftStr:IsShown() and leftStr:GetText()
         if text and text:find(sekret) then
             -- edit line
             local rightStr = _G["GameTooltipTextRight" .. i]
@@ -185,42 +182,6 @@ for i, slot in pairs(InventorySlots) do
     tip.slot = slot
 end
 
-local function RequeueInspect(guid)
-    if not guid then return end
-    if ActiveGUID == guid then
-        ActiveGUID = nil
-    end
-    InspectRetryGUID = guid
-    ShouldInspect = true
-    LastInspect = 0
-    RefreshCurrentTooltipDeferred(guid)
-end
-
-local function FinalizeIncompleteScan(guid)
-    if not guid or ScannedGUID ~= guid or ScanWatchdogGUID ~= guid then return end
-
-    local cache = GuidCache[guid]
-    if not cache then return end
-
-    local pending = false
-    for _, ilevel in pairs(SlotCache) do
-        if ilevel == false then
-            pending = true
-            break
-        end
-    end
-
-    if not pending then return end
-
-    cache.ilevel = ((cache.itemLevel or 0) > 0) and cache.itemLevel or 0
-    cache.weaponLevel = cache.weaponLevel or 0
-    cache.timestamp = GetTime()
-
-    ScanWatchdogGUID = nil
-    ScannedGUID = nil
-    E("ItemScanComplete", guid, cache)
-end
-
 local function OnTooltipSetItem(self)
     if not TestTipSlots[self] then return end
 
@@ -235,8 +196,9 @@ local function OnTooltipSetItem(self)
         if isCached then
             for i = 2, self:NumLines() do
                 local str = _G[tipName .. "TextLeft" .. i]
-                local text = GetSafeTooltipText(str)
+                local text = str and str:GetText()
                 if text then
+                    print(itemLink, i, text)
                     local ilevel = text:match(ItemLevelPattern1)
                     if not ilevel then
                         ilevel = text:match(ItemLevelPattern2)
@@ -254,6 +216,7 @@ local function OnTooltipSetItem(self)
     local totalItemLevel = 0
     for slot, ilevel in pairs(SlotCache) do
         if not ilevel then
+            -- print("no ilevel for slot", slot, ilevel)
             finished = false
             break
         else
@@ -264,6 +227,7 @@ local function OnTooltipSetItem(self)
     end
 
     if finished then
+        print('finished')
         local weaponLevel = 0
         local isDual = false
         if SlotCache[16] and SlotCache[17] then -- we have 2 weapons
@@ -329,32 +293,88 @@ local function OnTooltipSetItem(self)
             end
         end
 
-        ScanWatchdogGUID = nil
-        ScannedGUID = nil
         E("ItemScanComplete", guid, GuidCache[guid])
     end
 end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnTooltipSetItem);
 
-local function SafeGetTooltipUnit(tooltip)
-    if not tooltip then return end
-
-    local ok, _, unitID = pcall(tooltip.GetUnit, tooltip)
-    if not ok or not unitID or issecretvalue(unitID) then return end
-
-    return unitID
-end
-
 local function GetTooltipGUID()
     -- if GameTooltip:IsVisible() then
-    local unitID = SafeGetTooltipUnit(GameTooltip)
-    if not unitID then return end
+    
+    local ok, _, unitID = pcall(GameTooltip.GetUnit, GameTooltip)
+    if not ok or not unitID or issecretvalue(unitID) then return end
+
     local guid = unitID and UnitGUID(unitID)
     if UnitIsPlayer(unitID) and CanInspect(unitID) then
-        return guid
+        return guid, unitID
     end
     -- end
+end
+
+local f = CreateFrame("frame", nil, GameTooltip)
+local ShouldInspect = false
+local LastInspect = 0
+local FailTimeout = 1
+
+f:SetScript("OnUpdate", function(self, elapsed)
+    local guid, unitID = GetTooltipGUID()
+    if not unitID or not guid or (InspectFrame and InspectFrame:IsVisible()) then
+        return
+    end
+    local timeSince = GetTime() - LastInspect
+    if ShouldInspect and (ActiveGUID == guid or (timeSince >= INSPECT_TIMEOUT)) then
+        ShouldInspect = false
+        -- inspect whoever's in the tooltip and set to a unit we can inspect
+        if ActiveGUID ~= guid then -- todo: make sure this isn't going to be a problem
+            local cache = GuidCache[guid]
+            if cache and GetTime() - cache.timestamp <= CACHE_TIMEOUT then -- rescan only if enough time has elapsed
+                -- print("Still cached")
+            elseif CanInspect(unitID) then
+                NotifyInspect(unitID)
+            end
+        end
+    elseif ShouldInspect and (timeSince < INSPECT_TIMEOUT) then -- we are waiting for another inspection to time out before starting a new one
+        if unitID and UnitIsPlayer(unitID) and CanInspect(unitID) and not GuidCache[guid] then
+            AddLine(Sekret, ILVL_PENDING, format("%.1fs", INSPECT_TIMEOUT - (GetTime() - LastInspect)), 0.6, 0.6, 0.6,
+                0.6, 0.6, 0.6)
+        end
+    else
+        -- todo: handle the tooltip being visible with no attempt at inspecting the unit
+        if ActiveGUID then
+            if guid == ActiveGUID then
+                if timeSince <= FailTimeout then
+                    AddLine(Sekret, LOADING_ILVL, format("%d%%", timeSince / FailTimeout * 100), 0.6, 0.6, 0.6, 0.6,
+                        0.6, 0.6)
+                else
+                    AddLine(Sekret, LOADING_ILVL, FAILED or "Failed", 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
+                    ActiveGUID = nil
+                end
+            else
+                ActiveGUID = nil
+                -- inspected guid doesn't match who the tooltip is displaying
+                if timeSince > FailTimeout and CanInspect(unitID) then
+                    NotifyInspect(unitID) -- reissue notification attempt
+                end
+            end
+        end
+    end
+end)
+
+hooksecurefunc("NotifyInspect", function(unitID)
+    -- print("NotifyInspect!", unitID, UnitGUID(unitID), (select(6, GetPlayerInfoByGUID(UnitGUID(unitID)))))
+    if not GuidCache[UnitGUID(unitID)] then
+        ActiveGUID = UnitGUID(unitID)
+    end
+    LastInspect = GetTime()
+end)
+
+hooksecurefunc("ClearInspectPlayer", function()
+    ActiveGUID = nil
+end)
+
+local function DoInspect()
+    ShouldInspect = true
 end
 
 local function DecorateTooltip(guid)
@@ -392,8 +412,7 @@ local function DecorateTooltip(guid)
 		end
 		--]]
 
-        RemoveLine(SekretStatus)
-        AddLine(SekretILVL, cache.specName and cache.specName or " ",
+        AddLine(Sekret, cache.specName and cache.specName or " ",
             format("%s %.1f", ITEM_LEVEL_ABBR or "iLvl", averageItemLevel), r1, g1, b1, r1, g1, b1)
 
         -- Show Mythic+ score
@@ -427,261 +446,249 @@ local function DecorateTooltip(guid)
     end
 end
 
-local f = CreateFrame("frame", nil, GameTooltip)
-local FailTimeout = 1
-f:SetScript("OnUpdate", function(self, elapsed)
-    local unitID = SafeGetTooltipUnit(GameTooltip)
-    if not unitID then return end
-    local guid = unitID and UnitGUID(unitID)
-    if not guid or (InspectFrame and InspectFrame:IsVisible()) then
-        return
-    end
-    local timeSince = GetTime() - LastInspect
-    if ShouldInspect and (ActiveGUID == guid or (timeSince >= INSPECT_TIMEOUT)) then
-        ShouldInspect = false
-        -- inspect whoever's in the tooltip and set to a unit we can inspect
-        if ActiveGUID ~= guid then -- todo: make sure this isn't going to be a problem
-            local cache = GuidCache[guid]
-            if cache and GetTime() - cache.timestamp <= CACHE_TIMEOUT then -- rescan only if enough time has elapsed
-                -- print("Still cached")
-            elseif CanInspect(unitID) then
-                NotifyInspect(unitID)
+local function CalculateItemLevel(guid)
+    local finished = true
+    local totalItemLevel = 0
+    for slot, ilevel in pairs(SlotCache) do
+        if not ilevel then
+            print("no ilevel for slot", slot, ilevel)
+            finished = false
+            break
+        else
+            if slot ~= 16 and slot ~= 17 then
+                totalItemLevel = totalItemLevel + ilevel
             end
         end
-        if InspectRetryGUID == guid then
-            InspectRetryGUID = nil
-            InspectRetryAttempts = 0
-        end
-    elseif ShouldInspect and (timeSince < INSPECT_TIMEOUT) then -- we are waiting for another inspection to time out before starting a new one
-        if unitID and UnitIsPlayer(unitID) and CanInspect(unitID) and not GuidCache[guid] then
-            AddLine(SekretStatus, ILVL_PENDING, format("%.1fs", INSPECT_TIMEOUT - (GetTime() - LastInspect)), 0.6, 0.6, 0.6,
-                0.6, 0.6, 0.6)
-        end
-    else
-        -- todo: handle the tooltip being visible with no attempt at inspecting the unit
-        if ActiveGUID then
-            if guid == ActiveGUID then
-                local cache = GuidCache[guid]
-                local hasDisplayData = cache and (((cache.ilevel or 0) > 0) or ((cache.itemLevel or 0) > 0))
-                if hasDisplayData then
-                    RemoveLine(SekretStatus)
-                    ActiveGUID = nil
-                    DecorateTooltip(guid)
-                else
-                    if timeSince > INSPECT_TIMEOUT and CanInspect(unitID) then
-                        NotifyInspect(unitID)
-                    end
+    end
 
-                    local progress = timeSince <= FailTimeout and (timeSince / FailTimeout * 100) or 99
-                    if progress > 99 then
-                        progress = 99
-                    end
-                    AddLine(SekretStatus, LOADING_ILVL, format("%d%%", progress), 0.6, 0.6, 0.6, 0.6,
-                        0.6, 0.6)
-                end
+    if finished then
+        print('finished')
+        local weaponLevel = 0
+        local isDual = false
+        if SlotCache[16] and SlotCache[17] then -- we have 2 weapons
+            isDual = true
+            if IsArtifact(ItemCache[16]) or IsArtifact(ItemCache[17]) then -- take the higher of the 2 weapons and double it
+                local ilevelMain = SlotCache[16]
+                local ilevelOff = SlotCache[17]
+                weaponLevel = ilevelMain > ilevelOff and ilevelMain or ilevelOff
+                totalItemLevel = totalItemLevel + (weaponLevel * 2)
             else
-                ActiveGUID = nil
-                -- inspected guid doesn't match who the tooltip is displaying
-                if timeSince > FailTimeout and CanInspect(unitID) then
-                    NotifyInspect(unitID) -- reissue notification attempt
+                local ilevelMain = SlotCache[16]
+                local ilevelOff = SlotCache[17]
+                totalItemLevel = totalItemLevel + ilevelMain + ilevelOff
+                if ilevelMain > ilevelOff then
+                    weaponLevel = ilevelMain
+                else
+                    weaponLevel = ilevelOff
                 end
             end
-        end
-    end
-end)
-
-hooksecurefunc("NotifyInspect", function(unitID)
-    -- print("NotifyInspect!", unitID, UnitGUID(unitID), (select(6, GetPlayerInfoByGUID(UnitGUID(unitID)))))
-    local guid = UnitGUID(unitID)
-    if guid and not issecretvalue(guid) and not GuidCache[UnitGUID(unitID)] then
-        ActiveGUID = guid
-    end
-    LastInspect = GetTime()
-end)
-
-hooksecurefunc("ClearInspectPlayer", function()
-    ActiveGUID = nil
-end)
-
-local function DoInspect()
-    ShouldInspect = true
-end
-
-local function RefreshCurrentTooltip(guid)
-    if GameTooltip ~= nil and GameTooltip:IsShown() then
-        local tooltipUnit = SafeGetTooltipUnit(GameTooltip)
-        if not tooltipUnit then return end
-        local tooltipGUID = UnitGUID(tooltipUnit)
-        if not tooltipGUID or issecretvalue(tooltipGUID) or tooltipGUID ~= guid then return end
-
-        local refreshData = GameTooltip.RefreshData
-        if type(refreshData) == "function" then
-            refreshData(GameTooltip)
-            return
+        elseif SlotCache[16] then -- main hand only
+            local _, _, _, weaponType = GetItemInfoInstant(ItemCache[16])
+            local ilevelMain = SlotCache[16]
+            weaponLevel = ilevelMain
+            if TwoHanders[weaponType] then -- 2 handed, count it twice
+                totalItemLevel = totalItemLevel + (ilevelMain * 2)
+            else
+                totalItemLevel = totalItemLevel + ilevelMain
+            end
+        elseif SlotCache[17] then -- off hand only?
+            local ilevelOff = SlotCache[17]
+            totalItemLevel = totalItemLevel + ilevelOff
+            weaponLevel = ilevelOff
         end
 
-        GameTooltip:SetUnit(tooltipUnit)
+        if weaponLevel >= 900 and ScannedGUID ~= UnitGUID("player") then
+            weaponLevel = weaponLevel + 15
+            if isDual then
+                totalItemLevel = totalItemLevel + 15
+            else
+                totalItemLevel = totalItemLevel + 30
+            end
+        end
+
+        local averageItemLevel = totalItemLevel / 16
+
+        -- should we just return the cache for this GUID?
+        local guid = guid or ScannedGUID
+        if not GuidCache[guid] then
+            GuidCache[guid] = {}
+        end
+        -- GuidCache[guid].specName = specName
+        GuidCache[guid].ilevel = averageItemLevel
+        GuidCache[guid].weaponLevel = weaponLevel
+        GuidCache[guid].neckLevel = SlotCache[2]
+        -- GuidCache[guid].levelText = levelText
+        GuidCache[guid].timestamp = GetTime()
+
+        -- todo: figure out why this can fire multiple times
+        wipe(GuidCache[guid].legos)
+        for slot, link in pairs(ItemCache) do
+            if IsLegendary(link) then
+                tinsert(GuidCache[guid].legos, link)
+            end
+        end
+
+        E("ItemScanComplete", guid, GuidCache[guid])
     end
 end
 
-function RefreshCurrentTooltipDeferred(guid)
-    C_Timer.After(0, function()
-        RefreshCurrentTooltip(guid)
-    end)
+local PendingItemData = {
+    -- [tooltipInstanceID] = {unitGUID, slotID, itemGUID}
+}
+
+function E:TOOLTIP_DATA_UPDATE(dataInstanceID)
+    print("TOOLTIP_DATA_UPDATE", dataInstanceID)
+    -- Fires when item tooltip is populated with data
+    -- Doesn't fire if item data is already cached
+
+    -- 1) Delete entry from PendingTooltips[dataInstanceID]
+    -- 2) Add itemLevel for slot to GuidCache[guid]
+    -- 3) If all pending slots for guid now have data, fire E:ItemScanComplete
+    local data = PendingItemData[dataInstanceID]
+    if data then
+        local slot = data.slot
+        local unitID = UnitTokenFromGUID(data.guid)
+        if unitID then
+            -- FIXME: Handle the fact that unitID might not be valid when this is called
+            local itemLevel = GetItemLevel(unitID, slot)
+            if itemLevel then
+                SlotCache[slot] = tonumber(itemLevel)
+                ItemCache[slot] = GetInventoryItemLink(unitID, slot)
+                print("got item level!", itemLevel, ItemCache[slot])
+            end
+        end
+
+        CalculateItemLevel(guid)
+    end
 end
 
 local function ScanUnit(unitID)
-    -- print("SCANNING UNIT", unitID)
+    print("SCANNING UNIT", unitID)
     local guid = UnitGUID(unitID)
     if not guid or issecretvalue(guid) then return end
     ScannedGUID = guid
-    ScanWatchdogGUID = guid
-    ScanStartedAt = GetTime()
+    if not GuidCache[guid] then
+        GuidCache[guid] = {}
+    end
     wipe(SlotCache)
     wipe(ItemCache)
-    wipe(GuidCache[ScannedGUID].legos)
+    wipe(GuidCache[guid].legos)
     local numEquipped = 0
+    
     for i, slot in pairs(InventorySlots) do
         if GetInventoryItemTexture(unitID, slot) then -- we have an item in this slot
             SlotCache[slot] = false
+            ItemCache[slot] = GetInventoryItemLink(unitID, slot)
             -- print("GetInventoryItemTexture", slot, GetInventoryItemTexture(unitID, slot))
             numEquipped = numEquipped + 1
         end
     end
 
     if numEquipped > 0 then
-        C_Timer.After(0.75, function()
-            FinalizeIncompleteScan(guid)
-        end)
         for slot in pairs(SlotCache) do
-            TestTips[slot].itemLink = GetInventoryItemLink(unitID, slot)
-            -- -- print('GetInveotryItemLink', TestTips[slot].itemLink, slot)
-            TestTips[slot]:SetOwner(WorldFrame, "ANCHOR_NONE")
-            TestTips[slot]:SetInventoryItem(unitID, slot)
+            local itemTooltipInfo = C_TooltipInfo.GetInventoryItem(unitID, slot)
+            if itemTooltipInfo and itemTooltipInfo.dataInstanceID then
+                local itemLink = ItemCache[slot]
+                if not itemLink then
+                    -- Item in slot, but we have to wait for item data
+                    PendingItemData[itemTooltipInfo.dataInstanceID] = {
+                        guid = guid, -- unitGUID
+                        unitID = unitID,
+                        slot = slot,
+                        timestamp = GetTime(),
+                    }
+                    print("no data for slot", slot, itemLink)
+                else
+                    -- We have item data for this slot, set ilevel
+                    -- GuidCache[guid].slotCache[slot] = GetItemLevel(unitID, slot)
+                    SlotCache[slot] = GetItemLevel(unitID, slot)
+                    print("adding to slot cache", slot, SlotCache[slot])
+                end
+            end
         end
+
+        CalculateItemLevel(guid)
     else -- they don't appear to be wearing anything, return nothing
         local guid = ScannedGUID
-        if not GuidCache[guid] then
-            GuidCache[guid] = {}
-        end
         GuidCache[guid].ilevel = 0
         GuidCache[guid].weaponLevel = 0
         GuidCache[guid].timestamp = GetTime()
-        ScanWatchdogGUID = nil
-        ScannedGUID = nil
         E("ItemScanComplete", guid, GuidCache[guid])
     end
 end
 
 function E:INSPECT_READY(guid)
     -- print("INSPECT_READY")
+    ActiveGUID = nil
     local unitID = UnitTokenFromGUID(guid)
-    local unitGUID = unitID and UnitGUID(unitID)
+    if unitID and not issecretvalue(UnitGUID(unitID)) then
+        -- print("INSPECT_READY", unitID, name)
+        local classDisplayName, class = UnitClass(unitID)
+        local colors = class and RAID_CLASS_COLORS[class]
+        local specID = GetInspectSpecialization(unitID)
+        local specName, role, _ -- = GuidCache[guid].specName
+        if not specName and specID and specID ~= 0 then
+            specID, specName, _, _, role = GetSpecializationInfoByID(specID, UnitSex(unitID))
 
-    if (not unitID or not unitGUID or issecretvalue(unitGUID)) and guid then
-        if InspectRetryGUID == guid then
-            InspectRetryAttempts = InspectRetryAttempts + 1
-        else
-            InspectRetryGUID = guid
-            InspectRetryAttempts = 1
-        end
+            -- Default to class name if unit has no spec
+            if not specName or specName == "" then
+                specName = classDisplayName
+            end
 
-        if InspectRetryAttempts <= 4 then
-            C_Timer.After(0.05, function()
-                if InspectRetryGUID == guid then
-                    E:INSPECT_READY(guid)
+            -- Apply class color to spec name
+            if colors then
+                specName = "|c" .. colors.colorStr .. specName .. "|r"
+            end
+
+            -- Add role texture for player spec
+            if role then
+                local roleTexture
+                if role == "TANK" then
+                    roleTexture = CreateAtlasMarkup("roleicon-tiny-tank")
+                elseif role == "DAMAGER" then
+                    roleTexture = CreateAtlasMarkup("roleicon-tiny-dps")
+                elseif role == "HEALER" then
+                    roleTexture = CreateAtlasMarkup("roleicon-tiny-healer")
                 end
-            end)
-        else
-            InspectRetryGUID = nil
-            InspectRetryAttempts = 0
-            RequeueInspect(guid)
-        end
-        return
-    end
-
-    if InspectRetryGUID == guid then
-        InspectRetryGUID = nil
-        InspectRetryAttempts = 0
-    end
-
-    -- print("INSPECT_READY", unitID, name)
-    local classDisplayName, class = UnitClass(unitID)
-    local colors = class and RAID_CLASS_COLORS[class]
-    local specID = GetInspectSpecialization(unitID)
-    local specName, role, _ -- = GuidCache[guid].specName
-    if not specName and specID and specID ~= 0 then
-        specID, specName, _, _, role = GetSpecializationInfoByID(specID, UnitSex(unitID))
-
-        -- Default to class name if unit has no spec
-        if not specName or specName == "" then
-            specName = classDisplayName
-        end
-
-        -- Apply class color to spec name
-        if colors then
-            specName = "|c" .. colors.colorStr .. specName .. "|r"
-        end
-
-        -- Add role texture for player spec
-        if role then
-            local roleTexture
-            if role == "TANK" then
-                roleTexture = CreateAtlasMarkup("roleicon-tiny-tank")
-            elseif role == "DAMAGER" then
-                roleTexture = CreateAtlasMarkup("roleicon-tiny-dps")
-            elseif role == "HEALER" then
-                roleTexture = CreateAtlasMarkup("roleicon-tiny-healer")
-            end
-            if roleTexture then
-                specName = format("%s %s", roleTexture, specName)
+                if roleTexture then
+                    specName = format("%s %s", roleTexture, specName)
+                end
             end
         end
-    end
 
-    if not GuidCache[guid] then
-        GuidCache[guid] = {
-            ilevel = 0,
-            weaponLevel = 0,
-            timestamp = 0,
-            legos = {},
-            mythicPlus = {}
-        }
-    end
-    local cache = GuidCache[guid]
-    cache.specID = specID
-    cache.class = class
-    cache.classDisplayName = classDisplayName
-    cache.specName = specName
-    cache.itemLevel = C_PaperDollInfo.GetInspectItemLevel(unitID)
-    cache.mythicPlus = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unitID) or {}
+        if not GuidCache[guid] then
+            GuidCache[guid] = {
+                ilevel = 0,
+                weaponLevel = 0,
+                timestamp = 0,
+                legos = {},
+                mythicPlus = {},
+            }
+        end
+        local cache = GuidCache[guid]
+        cache.specID = specID
+        cache.class = class
+        cache.classDisplayName = classDisplayName
+        cache.specName = specName
+        cache.itemLevel = C_PaperDollInfo.GetInspectItemLevel(unitID)
+        cache.mythicPlus = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unitID) or {}
 
-    ScanUnit(unitID)
+        -- TODO: Remove old tooltip scanning code, clean up print statements
+        -- FIXME: DecorateTooltip should only be called after ScanUnit completes
+        DecorateTooltip(guid)
+        ScanUnit(unitID)
+    end
 end
 
 function E:ItemScanComplete(guid, cache)
-    -- print("ItemScanComplete", guid, cache)
+    print("ItemScanComplete", guid, cache)
     -- AddLine(STAT_AVERAGE_ITEM_LEVEL, cache.ilevel, 1, 1, 0, 1, 1, 1, true)
-
-    if GetTooltipGUID() == guid then
-        RemoveLine(SekretStatus)
-        DecorateTooltip(guid)
-    end
-
-    if ActiveGUID == guid then
-        ActiveGUID = nil
-    end
-
-    RefreshCurrentTooltipDeferred(guid)
+    DecorateTooltip(guid)
 end
 
-TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self)
+TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(self, ...)
     if self ~= GameTooltip then return end
-
-    -- print("OnTooltipSetUnit")
-    local unitID = SafeGetTooltipUnit(self)
-    if not unitID then return end
-    local guid = unitID and UnitGUID(unitID)
+    local guid, unitID = GetTooltipGUID()
     if guid and not issecretvalue(guid) and UnitIsPlayer(unitID) then
         -- print("OnTooltipSetUnit", guid, UnitName(unitID))
         local cache = GuidCache[guid]
