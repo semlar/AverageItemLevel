@@ -483,7 +483,7 @@ local function CalculateItemLevel(guid)
                 end
             end
         elseif SlotCache[16] then -- main hand only
-            local _, _, _, weaponType = GetItemInfoInstant(ItemCache[16])
+            local _, _, _, weaponType = C_Item.GetItemInfoInstant(ItemCache[16])
             local ilevelMain = SlotCache[16]
             weaponLevel = ilevelMain
             if TwoHanders[weaponType] then -- 2 handed, count it twice

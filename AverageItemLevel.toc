@@ -1,4 +1,4 @@
-## Interface: 120005
+## Interface: 120105
 ## Title: AverageItemLevel
 ## Notes: Displays the average item level of a player in their tooltip
 ## Author: Semlar
